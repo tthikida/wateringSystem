@@ -14,12 +14,15 @@ LiquidCrystal_I2C lcd(0x27,16,2);
 
 
 // EEPROM
-int eeAddress = 0;
+const int hourAddress           = 0;
+const int minuteAddress         = 1;
+const int durationMinuteAddress = 2;
+const int durationSecondAddress = 3;
 
 
 // Pins
 const int back         = 2;
-const int home         = 3;
+const int select       = 3;
 const int up           = 4;
 const int right        = 5;
 const int down         = 6;
@@ -67,7 +70,6 @@ int setWS1DurationSecond = 30;
 
 // Timing
 const int     oneSecondInterval    = 1;
-unsigned long lastDebounceTime     = 0;
 unsigned long debounceDelay        = 150;
 unsigned long previousSeconds      = 0;
 unsigned long currentSeconds       = 0;
@@ -78,15 +80,14 @@ unsigned long currentSecondsTimer  = 0;
 float humidity;
 float temperature;
 
+
+const bool ON        = HIGH;
+const bool OFF       = LOW;
+const bool ON_RELAY  = LOW;
+const bool OFF_RELAY = HIGH;
 bool waterSchedule1IsOn;
-bool wateredToday;
 bool timeToWater;
 bool delayTimer;
-
-int ON_LED    = HIGH;
-int OFF_LED   = LOW;
-int ON_RELAY  = LOW;
-int OFF_RELAY = HIGH;
 
 
 
@@ -94,21 +95,21 @@ int OFF_RELAY = HIGH;
 // Setup
 void BlinkForSetup(){
   for(int i = 3; i >= 0; i--){
-    digitalWrite(ledPin, ON_LED);
+    digitalWrite(ledPin, ON);
     delay(250);
-    digitalWrite(ledPin, OFF_LED);
+    digitalWrite(ledPin, OFF);
     delay(50);
   }
   for(int i = 4; i >= 0; i--){
-    digitalWrite(ledPin, ON_LED);
+    digitalWrite(ledPin, ON);
     delay(50);
-    digitalWrite(ledPin, OFF_LED);
+    digitalWrite(ledPin, OFF);
     delay(50);
   }
 }
 void SetupPins(){
   pinMode(back,  INPUT);
-  pinMode(home,  INPUT);
+  pinMode(select,  INPUT);
   pinMode(up,    INPUT);
   pinMode(down,  INPUT);
   pinMode(left,  INPUT);
@@ -121,17 +122,25 @@ void SetupPins(){
   digitalWrite(relay, OFF_RELAY);
 }
 void MoreSetupStuff(){
-  currentMenu        = "MainMenu";
-  waterSchedule1IsOn = true;
-  wateredToday       = false;
-  timeToWater        = false;
-  delayTimer         = false;
+  currentMenu          = "MainMenu";
+  waterSchedule1IsOn   = true;
+  timeToWater          = false;
+  delayTimer           = false;
+  ws1TimeOnHour        = EEPROM.read(hourAddress);
+  ws1TimeOnMinute      = EEPROM.read(minuteAddress);
+  setWS1DurationMinute = EEPROM.read(durationMinuteAddress);
+  setWS1DurationSecond = EEPROM.read(durationSecondAddress);
+  ws1DurationMinute    = setWS1DurationMinute;
+  ws1DurationSecond    = setWS1DurationSecond;
+  
 
-  dht.begin();        // Initialize DHT sensor
-  rtc.begin();        // Initialize the RTC
+  dht.begin();
+  rtc.begin();
 
-  // Uncomment the following line to set the initial time and date (optional)
+  // Uncomment the folOFFing line to set the initial time and date
   // rtc.adjust(DateTime(2023,9,11,22,22,0));
+
+
   }
 void SetupLCD(){
   lcd.init();
@@ -177,6 +186,9 @@ void PrintDate(){
 }
 void PrintTime(){
   lcd.setCursor(0,1);
+  if(rtc_hour<10){
+    lcd.print("0");
+  }
   lcd.print(rtc_hour);
   lcd.print(":");
   if(rtc_minute<10){
@@ -188,11 +200,9 @@ void PrintTime(){
     lcd.print("0");
   }
   lcd.print(rtc_second);
-
-  // PrintWaterScheduleOnOff();
 }
 void PrintTemperatureHumidity(){
-  humidity = dht.readHumidity();
+  humidity    = dht.readHumidity();
   temperature = dht.readTemperature();
   
   lcd.setCursor(10,0);
@@ -206,23 +216,12 @@ void PrintTemperatureHumidity(){
   lcd.print(humidity);
   lcd.setCursor(14,1);
   lcd.print("%  ");
-}
-void PrintWaterScheduleOnOff(){
-  if(!waterSchedule1IsOn){return;}
-  lcd.setCursor(0,1);
-  lcd.print("1");
-}
-void PrintGoBack(){
-  lcd.setCursor(0,0);
-  lcd.print("Go Back");
-  lcd.setCursor(0,1);
-  lcd.print("<-");
-}
+} 
 void PrintWaterPlant(int plantNum, String onOffString){
   lcd.clear();
   lcd.setCursor(0,0);
-  lcd.print("Water #");
-  lcd.print(plantNum);
+  lcd.print("Water");
+  // lcd.print(plantNum);
   lcd.setCursor(10,0);
   lcd.print("Menu->");
   lcd.setCursor(0,1);
@@ -319,9 +318,9 @@ void PrintSetWaterSchedule1(){
       break;
     case 6:
       lcd.setCursor(0,0);
-      lcd.print("Go Back");
-      lcd.setCursor(0,1);
-      lcd.print("<-");
+      lcd.print("Save Schedule?");
+      lcd.setCursor(10,1);
+      lcd.print("Save->  ");
       break;
     
     default:
@@ -334,24 +333,24 @@ void PrintSetWaterSchedule1(){
 
 // Button Logic
 void CheckButtonInput(){
-  upState = digitalRead(up);
-  downState = digitalRead(down);
-  leftState = digitalRead(left);
-  rightState = digitalRead(right);
-  backState = digitalRead(back);
-  selectState = digitalRead(home);
+  upState     = digitalRead(up);
+  downState   = digitalRead(down);
+  leftState   = digitalRead(left);
+  rightState  = digitalRead(right);
+  backState   = digitalRead(back);
+  selectState = digitalRead(select);
   delay(debounceDelay);
 }
 void MenuButtonsFunctions(){
   MainMenuButtons();
-  // SetTimeDateMenuButtons();
   SetWaterSchedule1Buttons();
 }
 void MainMenuButtons(){
   if(currentMenu != mainMenu){return;}
+
   // UP
-  if (upState == HIGH) {
-    digitalWrite(ledPin, HIGH);
+  if (upState == ON) {
+    digitalWrite(ledPin, ON);
     mainMenuIndex++;
     if(mainMenuIndex > mainMenuIndexMax){
       mainMenuIndex = 0;
@@ -359,8 +358,8 @@ void MainMenuButtons(){
     PrintMainMenu(mainMenuIndex);
   } 
   // DOWN
-  else if (downState == HIGH) {
-    digitalWrite(ledPin, HIGH);
+  else if (downState == ON) {
+    digitalWrite(ledPin, ON);
     mainMenuIndex--;
     if(mainMenuIndex < 0){
       mainMenuIndex = mainMenuIndexMax;
@@ -368,22 +367,20 @@ void MainMenuButtons(){
     PrintMainMenu(mainMenuIndex);
   }
   // LEFT
-  else if (leftState == HIGH) {
-    digitalWrite(ledPin, HIGH);
+  else if (leftState == ON) {
+    digitalWrite(ledPin, ON);
     Serial.println("Left - Main Menu");
     switch(mainMenuIndex){
       case 2:
         Relay_OnOff(relay, 1);
-        break;
-      case 3:
         break;
       default:
         Serial.print("default - Left - mainMenuIndex");
     }
   }
   // RIGHT
-  else if (rightState == HIGH) {
-    digitalWrite(ledPin, HIGH);
+  else if (rightState == ON) {
+    digitalWrite(ledPin, ON);
     switch(mainMenuIndex){
       case 0:
       //Title
@@ -392,7 +389,6 @@ void MainMenuButtons(){
       case 1:
       //TimeAndDate
         Serial.print("MainMenu - index 1 - Select button pressed");
-        // PrintSetTimeDateMenu();
         break;
       case 2:
       //WaterPlant1
@@ -405,15 +401,15 @@ void MainMenuButtons(){
     }
   }
   // BACK
-  else if (backState == HIGH) {
-    digitalWrite(ledPin, HIGH);
+  else if (backState == ON) {
+    digitalWrite(ledPin, ON);
     Serial.println("Back - Main Menu");
     mainMenuIndex = 1;
     PrintMainMenu(1);
   }
   // SELECT
-  else if (selectState == HIGH) {
-    digitalWrite(ledPin, HIGH);
+  else if (selectState == ON) {
+    digitalWrite(ledPin, ON);
     Serial.println("Select - Main Menu");
     switch(mainMenuIndex){
       case 0:
@@ -441,13 +437,13 @@ void MainMenuButtons(){
     }
   }
   else {
-    digitalWrite(ledPin, LOW);
+    digitalWrite(ledPin, OFF);
   }
 }
 void SetWaterSchedule1Buttons(){
   if(currentMenu != waterSchedule1){return;}
   // UP
-  if(upState == HIGH) {
+  if(upState == ON) {
     setWaterSchedule1Index++;
     if(setWaterSchedule1Index > setWaterSchedule1IndexMax){
       setWaterSchedule1Index = 0;
@@ -455,7 +451,7 @@ void SetWaterSchedule1Buttons(){
     PrintSetWaterSchedule1();
   } 
   // DOWN
-  else if (downState == HIGH) {
+  else if (downState == ON) {
     setWaterSchedule1Index--;
     if(setWaterSchedule1Index < 0){
       setWaterSchedule1Index = setWaterSchedule1IndexMax;
@@ -463,7 +459,7 @@ void SetWaterSchedule1Buttons(){
     PrintSetWaterSchedule1();
   }
   // LEFT
-  else if(leftState == HIGH) {
+  else if(leftState == ON) {
     switch(setWaterSchedule1Index){
       case 1:
         waterSchedule1IsOn = false;
@@ -504,7 +500,7 @@ void SetWaterSchedule1Buttons(){
     }
   }
   // RIGHT
-  else if (rightState == HIGH) {
+  else if (rightState == ON) {
     Serial.println("Right - ");
     switch(setWaterSchedule1Index){
       case 1:
@@ -542,38 +538,41 @@ void SetWaterSchedule1Buttons(){
         PrintSetWaterSchedule1();
         break;
       case 6:
-        setWaterSchedule1Index = 0;
-        PrintMainMenu(2);
+        EEPROM.write(hourAddress,           ws1TimeOnHour);
+        EEPROM.write(minuteAddress,         ws1TimeOnMinute);
+        EEPROM.write(durationMinuteAddress, setWS1DurationMinute);
+        EEPROM.write(durationSecondAddress, setWS1DurationSecond);
+        lcd.setCursor(0,0);
+        lcd.print("Schedule Saved!");
         break;
       default:
         Serial.print("default - Right - SetWaterSchedule1Buttons");
     }
   }
   // SELECT
-  else if (selectState == HIGH) {
+  else if (selectState == ON) {
     // nothing
   }
   // BACK
-  else if (backState == HIGH) {
+  else if (backState == ON) {
     setWaterSchedule1Index = 0;
     PrintMainMenu(2);
   }
   else {
-    digitalWrite(ledPin, LOW);
-    // digitalWrite(valveRelay, LOW);
+    digitalWrite(ledPin, OFF);
   }
 }
 
 
 // Relay Logic
 void Relay_OnOff(int valveRelay, int plantNum){
-  if(digitalRead(valveRelay) == LOW){
+  if(digitalRead(valveRelay) == ON_RELAY){
     PrintWaterPlant(plantNum,"OFF");
-    digitalWrite(valveRelay, HIGH);
+    digitalWrite(valveRelay, OFF_RELAY);
   } 
-  else if(digitalRead(valveRelay) == HIGH) {
+  else if(digitalRead(valveRelay) == OFF_RELAY) {
     PrintWaterPlant(plantNum,"ON");
-    digitalWrite(valveRelay, LOW);
+    digitalWrite(valveRelay, ON_RELAY);
   }  
 }
 void WaterSchedule1RelayControl(){
@@ -597,14 +596,14 @@ void WaterSchedule1RelayControl(){
         delayTimer        = true;
         ws1DurationMinute = setWS1DurationMinute;
         ws1DurationSecond = setWS1DurationSecond;
-        digitalWrite(relay, HIGH); //OFF
+        digitalWrite(relay, ON); //OFF
     }
     else if(ws1DurationSecond<0){
       ws1DurationMinute--;
       ws1DurationSecond = 59;
     }
     if(!delayTimer){
-      digitalWrite(relay, LOW);
+      digitalWrite(relay, OFF);
     }
   }
 }
@@ -685,11 +684,6 @@ void setup() {
   SetupPins();
   MoreSetupStuff();
   SetupLCD();
-
-  // EEPROM.write(address, 42);
-
-  // Serial.print("EEPROM-ADR:0 = ");
-  // Serial.println(EEPROM.read(address));
 }
 
 void loop() {
