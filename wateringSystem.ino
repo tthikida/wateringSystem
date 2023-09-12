@@ -32,7 +32,6 @@ const int relay        = 8;
 const int tempHumidity = 9;
 
 
-// Buttons and Menu Index
 const int mainMenuIndexMax          = 2;
 const int setWaterSchedule1IndexMax = 6;
 
@@ -91,8 +90,29 @@ bool delayTimer;
 
 
 
+//***************************************************************
 
-// Setup
+void setup() {
+  Serial.begin(9600);
+  BlinkForSetup();
+  SetupPins();
+  MoreSetupStuff();
+  SetupLCD();
+}
+
+void loop() {
+  RTCTime();
+  TheTime();
+  CheckButtonInput();
+  ButtonFunctions();
+  WaterSchedule1RelayControl();
+}
+
+//****************************************************************
+
+
+
+// Setup Functions
 void BlinkForSetup(){
   for(int i = 3; i >= 0; i--){
     digitalWrite(ledPin, ON);
@@ -109,7 +129,7 @@ void BlinkForSetup(){
 }
 void SetupPins(){
   pinMode(back,  INPUT);
-  pinMode(select,  INPUT);
+  pinMode(select,INPUT);
   pinMode(up,    INPUT);
   pinMode(down,  INPUT);
   pinMode(left,  INPUT);
@@ -133,15 +153,12 @@ void MoreSetupStuff(){
   ws1DurationMinute    = setWS1DurationMinute;
   ws1DurationSecond    = setWS1DurationSecond;
   
-
   dht.begin();
   rtc.begin();
 
   // Uncomment the folOFFing line to set the initial time and date
   // rtc.adjust(DateTime(2023,9,11,22,22,0));
-
-
-  }
+}
 void SetupLCD(){
   lcd.init();
   lcd.backlight();
@@ -221,7 +238,6 @@ void PrintWaterPlant(int plantNum, String onOffString){
   lcd.clear();
   lcd.setCursor(0,0);
   lcd.print("Water");
-  // lcd.print(plantNum);
   lcd.setCursor(10,0);
   lcd.print("Menu->");
   lcd.setCursor(0,1);
@@ -233,8 +249,8 @@ void PrintSetWaterSchedule1(){
   currentMenu = waterSchedule1;
   lcd.clear();
   switch(setWaterSchedule1Index){
+    // TIME ON & Duration
     case 0:
-      //ON
       lcd.setCursor(0,0);
       lcd.print("TimeON  ");
       lcd.setCursor(9,0);
@@ -247,7 +263,7 @@ void PrintSetWaterSchedule1(){
           lcd.print("0");
         }
       lcd.print(ws1TimeOnMinute);
-      //OFF
+      
       lcd.setCursor(0,1);
       lcd.print("Duration ");
       lcd.setCursor(9,1);
@@ -329,8 +345,6 @@ void PrintSetWaterSchedule1(){
 }
 
 
-
-
 // Button Logic
 void CheckButtonInput(){
   upState     = digitalRead(up);
@@ -341,7 +355,7 @@ void CheckButtonInput(){
   selectState = digitalRead(select);
   delay(debounceDelay);
 }
-void MenuButtonsFunctions(){
+void ButtonFunctions(){
   MainMenuButtons();
   SetWaterSchedule1Buttons();
 }
@@ -372,7 +386,7 @@ void MainMenuButtons(){
     Serial.println("Left - Main Menu");
     switch(mainMenuIndex){
       case 2:
-        Relay_OnOff(relay, 1);
+        Relay_ToggleOnOff(relay, 1);
         break;
       default:
         Serial.print("default - Left - mainMenuIndex");
@@ -419,18 +433,12 @@ void MainMenuButtons(){
       case 1:
       //TimeAndDate
         Serial.print("MainMenu - index 1 - Select button pressed");
-        // PrintSetTimeDateMenu();
         break;
       case 2:
       //WaterPlant1
         Serial.print("MainMenu - index 2 - Select button pressed");
         setWaterSchedule1Index = 0;
         PrintSetWaterSchedule1();
-        break;
-      case 3:
-      //WaterPlant2
-        Serial.print("MainMenu - index 3 - Select button pressed");
-        // PrintSetWaterSchedule2());
         break;
       default:
         Serial.print("default case - MainMenuButtons - Select");
@@ -565,7 +573,7 @@ void SetWaterSchedule1Buttons(){
 
 
 // Relay Logic
-void Relay_OnOff(int valveRelay, int plantNum){
+void Relay_ToggleOnOff(int valveRelay, int plantNum){
   if(digitalRead(valveRelay) == ON_RELAY){
     PrintWaterPlant(plantNum,"OFF");
     digitalWrite(valveRelay, OFF_RELAY);
@@ -591,19 +599,19 @@ void WaterSchedule1RelayControl(){
     previousSecondsTimer = currentSecondsTimer;
     ws1DurationSecond--;
 
-    if(ws1DurationMinute<=0 && ws1DurationSecond < 0){
+    if(ws1DurationMinute <= 0 && ws1DurationSecond < 0){
         timeToWater       = false;
         delayTimer        = true;
         ws1DurationMinute = setWS1DurationMinute;
         ws1DurationSecond = setWS1DurationSecond;
-        digitalWrite(relay, ON); //OFF
+        digitalWrite(relay, OFF_RELAY);
     }
     else if(ws1DurationSecond<0){
       ws1DurationMinute--;
       ws1DurationSecond = 59;
     }
     if(!delayTimer){
-      digitalWrite(relay, OFF);
+      digitalWrite(relay, ON_RELAY);
     }
   }
 }
@@ -612,10 +620,12 @@ void WaterSchedule1RelayControl(){
 // Time Functions
 void TheTime(){
   currentSeconds = rtc_second;
+
+  // 1 second interval timer
   if (currentSeconds - previousSeconds >= oneSecondInterval) {
     previousSeconds = currentSeconds;
 
-    //Pages with time
+    //Pages needing updating
     if(mainMenuIndex == 1 && currentMenu == mainMenu){
       PrintDate();
       PrintTime();
@@ -648,49 +658,8 @@ void RTCTime(){
 }
 
 
-// Temperature-Humidity Functions
-void TemperatureHumidity(){
-  humidity = dht.readHumidity();
-  temperature = dht.readTemperature();
-
-  // Check if reading was successful
-  if (isnan(humidity) || isnan(temperature)) {
-    Serial.println("Error reading from DHT sensor!");
-  } else {
-    // Display temperature and humidity on the serial monitor
-    Serial.print("Humidity: ");
-    Serial.print(humidity);
-    Serial.print("%\t");
-    Serial.print("Temperature: ");
-    Serial.print(temperature);
-    Serial.println("°C");
-  }
-
-  // Wait for a few seconds before taking another reading
-  // delay(2000);
-}
-
-
 // Helper Functions
 void SetWaterScheduleTopCursor(){
     lcd.setCursor(1,0);
-  }
+}
   
-
-
-void setup() {
-  Serial.begin(9600);
-  BlinkForSetup();
-  SetupPins();
-  MoreSetupStuff();
-  SetupLCD();
-}
-
-void loop() {
-  TheTime();
-  CheckButtonInput();
-  MenuButtonsFunctions();
-  WaterSchedule1RelayControl();
-  RTCTime();
-}
-//****************************************************************
